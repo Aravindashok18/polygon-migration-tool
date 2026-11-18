@@ -1,12 +1,12 @@
 # PolygonMigration
 
 ## Overview
-PolygonMigration is a Django-based web application designed to facilitate the migration of programming problems and their test cases from the [Polygon](https://polygon.codeforces.com/) platform to a local database and Azure Blob Storage. It provides a user-friendly interface for staff users to fetch, review, tag, and migrate problems, as well as manage test cases and metadata.
+PolygonMigration is a Django-based web application designed to facilitate the migration of programming problems and their test cases from the [Polygon](https://polygon.codeforces.com/) platform to a local database and cloud storage (Cloudflare R2 by default; AWS S3 and Azure Blob are also supported). It provides a user-friendly interface for staff users to fetch, review, tag, and migrate problems, as well as manage test cases and metadata.
 
 ## Features
 - **Polygon Integration:** Fetch problems and test cases directly from Polygon using API keys.
 - **Database Migration:** Store problem statements, metadata, and test cases in a PostgreSQL database.
-- **Azure Blob Storage:** Upload test cases to Azure Blob Storage for scalable storage and retrieval.
+- **Cloud Storage:** Upload test cases to Cloudflare R2, AWS S3 or Azure Blob Storage through one storage interface (`problems/storage/`).
 - **Tagging & Metadata:** Add, search, and manage tags and difficulty levels for each problem.
 - **Admin Interface:** Manage users, problems, tags, and test cases via Django admin.
 - **Custom User Model:** Email-based authentication with extended user profile fields.
@@ -17,14 +17,15 @@ PolygonMigration is a Django-based web application designed to facilitate the mi
 2. **Fetch Problem:** Enter a Polygon Problem ID to fetch problem details and test cases.
 3. **Review & Tag:** Review the fetched problem, select difficulty, and add tags.
 4. **Migrate to Database:** Save the problem and metadata to the local database.
-5. **Migrate Test Cases:** Optionally, migrate test cases to the database and/or Azure Blob Storage.
+5. **Migrate Test Cases:** Optionally, migrate test cases to the database and/or cloud storage.
 6. **View & Manage:** Use the admin interface for advanced management of problems, tags, and users.
 
 ## Setup Instructions
 ### 1. Prerequisites
 - Python 3.8+
 - PostgreSQL database
-- [Azure account](https://portal.azure.com/) with Blob Storage and an AAD application
+- A cloud storage bucket: Cloudflare R2 (default), AWS S3, or Azure Blob Storage
+- Redis
 - Polygon API credentials
 
 ### 2. Clone the Repository
@@ -136,7 +137,49 @@ Access the app at [http://localhost:8000/](http://localhost:8000/)
   - Fetch a problem by Polygon ID.
   - Select difficulty and tags.
   - Migrate to the database.
-  - Migrate test cases to the database and/or Azure.
+  - Migrate test cases to the database and/or cloud storage.
+
+## Cloud Storage
+Test cases are uploaded through a provider-neutral interface in `problems/storage/`:
+
+| File | Purpose |
+|------|---------|
+| `storage/base.py` | `TestCaseStorage` interface + the key layout |
+| `storage/s3.py` | `S3CompatibleStorage` (Cloudflare R2 and AWS S3) |
+| `storage/azure_blob.py` | `AzureBlobStorage` (the original Azure logic) |
+| `storage/__init__.py` | `get_storage()` picks the provider from `STORAGE_PROVIDER` |
+
+The migration code (`PolygonAPI.migrate_to_storage`) only calls the interface, so switching provider is a `.env` change. Files are written as:
+
+```
+test_cases/{db_problem_id}/{NN}      # input  (NN = 01, 02, ...)
+test_cases/{db_problem_id}/{NN}.a    # output
+```
+
+### Configure Cloudflare R2 (default)
+1. Cloudflare dashboard → R2 → **Create bucket** (e.g. `polygon-testcases`).
+2. R2 → **Manage API tokens** → **Create API token** with *Object Read & Write* on that bucket.
+3. Put the values in `PolygonMigration/.env`:
+   ```env
+   STORAGE_PROVIDER=r2
+   R2_ACCOUNT_ID=...
+   R2_ACCESS_KEY_ID=...
+   R2_SECRET_ACCESS_KEY=...
+   R2_BUCKET_NAME=polygon-testcases
+   ```
+For AWS S3 set `STORAGE_PROVIDER=s3` and the `AWS_*` variables; for Azure set `STORAGE_PROVIDER=azure` and the `AZURE_*` variables (see `.env.example`).
+
+### Verify
+```bash
+python manage.py storage_ls              # provider reachable? lists test_cases/
+python manage.py storage_ls 1 --show 1   # files for problem 1 + contents of 01 / 01.a
+```
+
+### Tests
+```bash
+pip install -r ../requirements-dev.txt
+python manage.py test problems           # S3/R2 calls are mocked with moto
+```
 
 ## Environment Variables Reference
 | Variable                  | Description                                 |
@@ -151,6 +194,9 @@ Access the app at [http://localhost:8000/](http://localhost:8000/)
 | DB_PORT                   | PostgreSQL port                             |
 | POLYGON_API_KEY           | Polygon API key                             |
 | POLYGON_API_SECRET        | Polygon API secret                          |
+| STORAGE_PROVIDER          | `r2` (default), `s3` or `azure`             |
+| R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME | Cloudflare R2 settings |
+| AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION / AWS_S3_BUCKET_NAME | AWS S3 settings |
 | AZURE_STORAGE_ACCOUNT_URL | Azure Blob Storage account URL              |
 | AZURE_TENANT_ID           | Azure AD tenant ID                          |
 | AZURE_CLIENT_ID           | Azure AD application client ID              |
