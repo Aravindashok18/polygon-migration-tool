@@ -1,0 +1,2 @@
+-r requirement.txt
+moto[s3]==5.0.28
