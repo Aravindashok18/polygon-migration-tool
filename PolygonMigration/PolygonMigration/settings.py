@@ -27,7 +27,20 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = [h.strip() for h in os.getenv('ALLOWED_HOSTS', '').split(',') if h.strip()]
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()]
+
+# Hosting on Render: it sets RENDER_EXTERNAL_HOSTNAME to the public host name.
+RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
+
+if not DEBUG:
+    # Behind an HTTPS proxy (Render, etc.)
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = os.getenv('SECURE_COOKIES', 'True') == 'True'
+    CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -43,6 +56,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # serves collected static files in production
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -84,6 +98,15 @@ DATABASES = {
     }
 }
 
+# Hosted PostgreSQL (e.g. Render) provides a single DATABASE_URL; it overrides DB_*.
+if os.getenv("DATABASE_URL"):
+    import dj_database_url
+
+    DATABASES["default"] = dj_database_url.parse(
+        os.environ["DATABASE_URL"], conn_max_age=600, conn_health_checks=True
+    )
+    DATABASES["default"].setdefault("OPTIONS", {})["client_encoding"] = "UTF8"
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
@@ -115,6 +138,16 @@ STATICFILES_DIRS = [
 ]
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if not DEBUG else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        )
+    },
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -154,6 +187,16 @@ REDIS_HOST = os.getenv("REDIS_HOST")
 REDIS_PORT = os.getenv("REDIS_PORT")
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 REDIS_SSL = os.getenv("REDIS_SSL", "False").strip().lower() == "true"
+
+# Hosted Redis / Key Value (e.g. Render) provides a single REDIS_URL; it overrides REDIS_*.
+if os.getenv("REDIS_URL"):
+    from urllib.parse import urlparse
+
+    _redis = urlparse(os.environ["REDIS_URL"])
+    REDIS_HOST = _redis.hostname
+    REDIS_PORT = _redis.port or 6379
+    REDIS_PASSWORD = _redis.password or None
+    REDIS_SSL = _redis.scheme == "rediss"
 
 LOGGING = {
     'version': 1,

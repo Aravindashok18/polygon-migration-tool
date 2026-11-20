@@ -181,6 +181,17 @@ pip install -r ../requirements-dev.txt
 python manage.py test problems           # S3/R2 calls are mocked with moto
 ```
 
+## Deploy to Render
+The repo includes a [Render Blueprint](render.yaml) that creates the web app, a PostgreSQL database and a Redis (Key Value) instance on Render's free plans.
+
+1. Render dashboard → **New** → **Blueprint** → choose this repository (or open `https://render.com/deploy?repo=https://github.com/Aravindashok18/polygon-migration-tool`).
+2. Fill in the values Render asks for: `POLYGON_API_KEY`, `POLYGON_API_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and the first login `DJANGO_SUPERUSER_EMAIL` / `DJANGO_SUPERUSER_PASSWORD`.
+3. Click **Apply**. The start command runs migrations, creates that superuser if it does not exist (`python manage.py ensure_superuser`), and starts gunicorn.
+
+In production `DATABASE_URL` and `REDIS_URL` override the `DB_*` / `REDIS_*` variables, static files are served by WhiteNoise, and `RENDER_EXTERNAL_HOSTNAME` is added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS` automatically.
+
+Free-plan limits: the web service sleeps after ~15 minutes idle (first request takes about a minute), and the free PostgreSQL database expires after 30 days.
+
 ## Environment Variables Reference
 | Variable                  | Description                                 |
 |--------------------------|---------------------------------------------|
@@ -207,6 +218,8 @@ python manage.py test problems           # S3/R2 calls are mocked with moto
 | REDIS_PORT                | Redis port (optional)                       |
 | REDIS_PASSWORD            | Redis password (optional)                   |
 | REDIS_SSL                 | Redis SSL (optional, True/False)            |
+| DATABASE_URL / REDIS_URL  | Hosted DB / Redis URLs (override DB_* / REDIS_*) |
+| DJANGO_SUPERUSER_EMAIL / DJANGO_SUPERUSER_PASSWORD | First login, created by `ensure_superuser` |
 
 ## Project Structure
 ```
